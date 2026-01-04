@@ -1,5 +1,5 @@
 
-import Data.List(intercalate, transpose, find)
+import Data.List(intercalate, transpose, find, foldl')
 import Data.List.Split (chunksOf)
 import System.Random(StdGen, getStdGen, randomRs, next)
 import Data.Maybe      (fromJust)
@@ -162,12 +162,10 @@ backpropagate network i = reverse $ backward [cost' (expected i) guess] (reverse
 main :: IO ()
 main = do
     putStrLn "=== XOR Function Learning Demo ==="
-    putStrLn "Creating neural network with structure [2, 2, 1]..."
-    network <- createNN [2, 2, 1]
-    putStrLn "Original network:"
-    mapM_ (putStrLn . show) network
+    putStrLn "Testing different network architectures for XOR problem..."
     
-    -- XOR truth table: [0,0]=0, [0,1]=1, [1,0]=1, [1,1]=0
+    -- Test different network sizes
+    let networkSizes = [[2, 2, 1], [2, 4, 1], [2, 6, 1]]
     let xorInputs = [
             (Input [0,0] 0, "[0,0] -> 0"),
             (Input [0,1] 1, "[0,1] -> 1"),
@@ -175,29 +173,54 @@ main = do
             (Input [1,1] 0, "[1,1] -> 0")
             ]
     
-    let epsilon = 0.1  -- Target error threshold
-    let maxIterations = 2000  -- Maximum training iterations per input
+    let epsilon = 0.15  -- Slightly higher threshold for this experiment
+    let maxIterations = 3000  -- More iterations for better learning
     
-    putStrLn $ "\nTraining XOR function with epsilon: " ++ show epsilon
     putStrLn "XOR Truth Table:"
     mapM_ (putStrLn . snd) xorInputs
+    putStrLn "\nTesting network architectures:"
     
-    -- Train on each XOR input
-    trainedNetworks <- mapM (trainXOR epsilon maxIterations network) xorInputs
+    -- Test each network size
+    results <- mapM (testNetworkSize epsilon maxIterations xorInputs) networkSizes
     
-    -- Test the final network on all XOR inputs
-    putStrLn "\n=== Testing Trained Network on All XOR Inputs ==="
-    let finalNetwork = last trainedNetworks  -- Use the last trained network
-    mapM_ (testXORInput finalNetwork) xorInputs
+    -- Compare results
+    putStrLn "\n=== Architecture Comparison ==="
+    mapM_ putStrLn results
+    
+    -- Test the best architecture with more comprehensive training
+    putStrLn "\n=== Comprehensive Training on Best Architecture ==="
+    let bestNetworkSize = [2, 4, 1]  -- Start with this as best
+    bestNetwork <- createNN bestNetworkSize
+    putStrLn $ "Using architecture: " ++ show bestNetworkSize
+    
+    -- Train on all patterns multiple times (simple batch training)
+    let trainedNetwork = trainComprehensive epsilon 10000 bestNetwork xorInputs
+    
+    -- Final evaluation
+    putStrLn "\n=== Final Evaluation ==="
+    mapM_ (testXORInput trainedNetwork) xorInputs
 
     where
-        trainXOR epsilon maxIterations network (input, description) = do
-            putStrLn $ "\n--- Training on " ++ description ++ " ---"
-            let trainedNetwork = train epsilon maxIterations network input
-            let prediction = predict input trainedNetwork
-            putStrLn $ "Prediction: " ++ show prediction ++ ", Expected: " ++ show (expected input)
-            putStrLn $ "Error: " ++ show (abs (prediction - expected input))
-            return trainedNetwork
+        testNetworkSize epsilon maxIterations xorInputs size = do
+            putStrLn $ "\n--- Testing architecture: " ++ show size ++ " ---"
+            network <- createNN size
+            
+            -- Train on first pattern as representative test
+            let (firstInput, firstDesc) = head xorInputs
+            let trainedNetwork = train epsilon maxIterations network firstInput
+            let prediction = predict firstInput trainedNetwork
+            let error = abs (prediction - expected firstInput)
+            
+            let result = "Architecture " ++ show size ++ ": Error = " ++ show error ++ 
+                        " (Prediction: " ++ show prediction ++ ", Expected: " ++ show (expected firstInput) ++ ")"
+            putStrLn result
+            return result
+        
+        trainComprehensive epsilon maxIterations network xorInputs = 
+            foldl' (\net _ -> trainOnAll epsilon 1 net xorInputs) network [1..maxIterations `div` length xorInputs]
+            where
+                trainOnAll epsilon iterations net inputs = 
+                    foldl' (\n (input, _) -> train epsilon iterations n input) net inputs
         
         testXORInput network (input, description) = do
             let prediction = predict input network
