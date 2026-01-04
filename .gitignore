@@ -1,0 +1,28 @@
+# Haskell
+*.hi
+*.o
+*.chi
+dist
+dist-newstyle
+.cabal-sandbox
+cabal.sandbox.config
+.cabal-dev
+.cabal-sandbox
+dist-newstyle/
+
+# Stack
+.stack-work/
+
+# Environment
+.env
+
+# IDE/Editor
+.idea/
+.vscode/
+*.swp
+
+# Logs
+*.log
+
+# Temporary files
+*~
