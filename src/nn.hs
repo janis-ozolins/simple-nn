@@ -161,24 +161,48 @@ backpropagate network i = reverse $ backward [cost' (expected i) guess] (reverse
 
 main :: IO ()
 main = do
+    putStrLn "=== XOR Function Learning Demo ==="
     putStrLn "Creating neural network with structure [2, 2, 1]..."
     network <- createNN [2, 2, 1]
     putStrLn "Original network:"
     mapM_ (putStrLn . show) network
     
-    let epsilon = 0.01  -- More reasonable stopping criterion
-    let testInput = Input [1,1] 1
-    putStrLn $ "Training with epsilon: " ++ show epsilon
-    putStrLn $ "Training input: " ++ show (features testInput) ++ " -> " ++ show (expected testInput)
+    -- XOR truth table: [0,0]=0, [0,1]=1, [1,0]=1, [1,1]=0
+    let xorInputs = [
+            (Input [0,0] 0, "[0,0] -> 0"),
+            (Input [0,1] 1, "[0,1] -> 1"),
+            (Input [1,0] 1, "[1,0] -> 1"),
+            (Input [1,1] 0, "[1,1] -> 0")
+            ]
     
-    let trainedNetwork = train epsilon 1000 network testInput  -- Limit to 1000 iterations
-    putStrLn "\nTraining complete!"
-    putStrLn "Trained network:"
-    mapM_ (putStrLn . show) trainedNetwork
+    let epsilon = 0.1  -- Target error threshold
+    let maxIterations = 2000  -- Maximum training iterations per input
     
-    let prediction = predict testInput trainedNetwork
-    putStrLn $ "\nPrediction for input [1,1]: " ++ show prediction
-    putStrLn $ "Expected: " ++ show (expected testInput)
-    putStrLn $ "Cost: " ++ show (cost (expected testInput) prediction)
-    putStrLn $ "Error: " ++ show (abs (prediction - expected testInput))
+    putStrLn $ "\nTraining XOR function with epsilon: " ++ show epsilon
+    putStrLn "XOR Truth Table:"
+    mapM_ (putStrLn . snd) xorInputs
+    
+    -- Train on each XOR input
+    trainedNetworks <- mapM (trainXOR epsilon maxIterations network) xorInputs
+    
+    -- Test the final network on all XOR inputs
+    putStrLn "\n=== Testing Trained Network on All XOR Inputs ==="
+    let finalNetwork = last trainedNetworks  -- Use the last trained network
+    mapM_ (testXORInput finalNetwork) xorInputs
+
+    where
+        trainXOR epsilon maxIterations network (input, description) = do
+            putStrLn $ "\n--- Training on " ++ description ++ " ---"
+            let trainedNetwork = train epsilon maxIterations network input
+            let prediction = predict input trainedNetwork
+            putStrLn $ "Prediction: " ++ show prediction ++ ", Expected: " ++ show (expected input)
+            putStrLn $ "Error: " ++ show (abs (prediction - expected input))
+            return trainedNetwork
+        
+        testXORInput network (input, description) = do
+            let prediction = predict input network
+            let error = abs (prediction - expected input)
+            let success = if error < 0.2 then "✓" else "✗"
+            putStrLn $ success ++ " " ++ description ++ " -> Predicted: " ++ show prediction ++ 
+                      " (Expected: " ++ show (expected input) ++ ", Error: " ++ show error ++ ")"
     
