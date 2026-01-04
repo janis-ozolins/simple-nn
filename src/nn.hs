@@ -57,13 +57,26 @@ rate :: Double
 rate = 0.1
 
 backward :: [Double] -> [[Neuron]] -> [[ForwardNeuronCal]] -> [[Neuron]]
-backward da (l:ls) (f:fs) | trace ("backward " ++ show da ++ ", " ++ show l ++ ", " ++ show f ++ "\n") False = undefined
-backward da (l:ls) (f:fp:fs) = zipWith (\u n -> Neuron (zipWith (\w d -> w - rate * d) (inputWeights n) (fst u)) (bias n - rate * snd u) (activate n) (activate' n)) (zip dW dB) l : backward pDa ls (fp:fs)
+backward da (l:ls) (f:fp:fs) = zipWith updateNeuron (zip dW dB) l : backward pDa ls (fp:fs)
     where
+        -- Calculate error at current layer
         dZ = zipWith (*) da (map (sigmoid' . calc) f)
-        dW = zipWith (\z as -> map (* z) as) dZ (repeat (map activation fp))
+        
+        -- Calculate weight and bias gradients
+        prevActivations = map activation fp  -- Activations from previous layer
+        dW = zipWith (\z as -> map (* z) as) dZ (repeat prevActivations)
         dB = dZ
-        pDa = zipWith (\z ws -> sum (map (* z) ws)) (repli dZ 5) (transpose (map inputWeights l))
+        
+        -- Calculate error for previous layer
+        weightsT = transpose (map inputWeights l)  -- Transpose weights for matrix multiplication
+        pDa = zipWith (\z ws -> sum (map (* z) ws)) dZ weightsT
+        
+        -- Update neuron function
+        updateNeuron (dw, db) n = Neuron 
+            (zipWith (\w d -> w - rate * d) (inputWeights n) dw)
+            (bias n - rate * db)
+            (activate n)
+            (activate' n)
 backward da _ _ = []
 
 repli ::  [a] -> Int -> [a]
@@ -78,8 +91,9 @@ predict i network = activation (head (last (forwardNNCalInput (features i) netwo
 cost :: Double -> Double -> Double
 cost expect true = -1 * ((expect * log true) + (1 - expect) * log (1 - true))
 
+-- Correct cost function derivative for binary cross-entropy
 cost' :: Double -> Double -> Double
-cost' expect true = -1 * (expect / true) - (1 - expect) / (1 - true)
+cost' expect true = (sigmoid true - expect)
 
 forwardNNCalInput :: [Double] -> [[Neuron]] -> [[ForwardNeuronCal]]
 forwardNNCalInput input neurons = [map (\x -> ForwardNeuronCal 0 x) input] ++ (forwardNNCal (map (\x -> ForwardNeuronCal x 0) input) neurons)
@@ -125,20 +139,21 @@ mmult a b = [ [ sum $ zipWith (*) ar bc | bc <- (transpose b) ] | ar <- a ]
 -- nameReturn = do network <- createNN [2,2,1]
 --                 return predict (Input [1,1] 1) network
 
-train :: Double -> [[Neuron]] -> Input -> [[Neuron]]
-train epsilon network input = fromJust $ find (findGradient epsilon input) $ trainUl network input
+train :: Double -> Int -> [[Neuron]] -> Input -> [[Neuron]]
+train epsilon maxIterations network input = 
+    case find (findGradient epsilon input) $ take maxIterations $ trainUl network input of
+        Just result -> result
+        Nothing -> last $ take maxIterations $ trainUl network input
 
 findGradient :: Double -> Input -> [[Neuron]] -> Bool
-findGradient _ input network | trace ("findGradient " ++ (show $ predict input network) ++ "\n") False = undefined
-findGradient epsilon input network = predict input network > 1 - epsilon
+findGradient epsilon input network = abs (predict input network - expected input) < epsilon
 
 trainUl :: [[Neuron]] -> Input -> [[[Neuron]]]
 trainUl network samples = iterate (\x -> backpropagate x samples) network
 
 backpropagate :: [[Neuron]] -> Input -> [[Neuron]]
--- backpropagation starts from end so that is why rersing is needed
-backpropagate network _ | trace ("backpropagate " ++ show network ++ "\n") False = undefined
-backpropagate network i = reverse $ backward [cost' 1 guess] (reverse network) (reverse forwardNeurons)
+-- backpropagation starts from end so that is why reversing is needed
+backpropagate network i = reverse $ backward [cost' (expected i) guess] (reverse network) (reverse forwardNeurons)
     where
         forwardNeurons = forwardNNCalInput (features i) network
         guess = activation (head (last forwardNeurons))
@@ -151,12 +166,12 @@ main = do
     putStrLn "Original network:"
     mapM_ (putStrLn . show) network
     
-    let epsilon = 1 - 0.7310585786300048
+    let epsilon = 0.01  -- More reasonable stopping criterion
     let testInput = Input [1,1] 1
     putStrLn $ "Training with epsilon: " ++ show epsilon
     putStrLn $ "Training input: " ++ show (features testInput) ++ " -> " ++ show (expected testInput)
     
-    let trainedNetwork = train epsilon network testInput
+    let trainedNetwork = train epsilon 1000 network testInput  -- Limit to 1000 iterations
     putStrLn "\nTraining complete!"
     putStrLn "Trained network:"
     mapM_ (putStrLn . show) trainedNetwork
@@ -165,3 +180,5 @@ main = do
     putStrLn $ "\nPrediction for input [1,1]: " ++ show prediction
     putStrLn $ "Expected: " ++ show (expected testInput)
     putStrLn $ "Cost: " ++ show (cost (expected testInput) prediction)
+    putStrLn $ "Error: " ++ show (abs (prediction - expected testInput))
+    
