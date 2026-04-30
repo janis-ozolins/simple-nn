@@ -1,0 +1,23 @@
+name: Compile
+
+on:
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  compile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up GHC
+        uses: haskell-actions/setup@v2
+        with:
+          ghc-version: 'latest'
+          cabal-version: 'latest'
+
+      - name: Install dependencies
+        run: cabal update && cabal build --only-dependencies
+
+      - name: Compile
+        run: cabal build
