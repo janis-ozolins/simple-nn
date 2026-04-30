@@ -2,9 +2,6 @@
 import Data.List(intercalate, transpose, find, foldl')
 import Data.List.Split (chunksOf)
 import System.Random(StdGen, getStdGen, randomRs, next)
-import Data.Maybe      (fromJust)
-
-import Debug.Trace     (trace)
 
 data Neuron = Neuron { inputWeights :: [Double]      -- ^ The input weights
                      , bias :: Double                -- ^ b in W * X + b
@@ -52,9 +49,6 @@ createNNwGen layers g = map (uncurry sl) $ zip (chunkLayers layers) (splitGen g)
         splitGen gen = gen : splitGen (snd (next gen))
         sl x gen = createSigmoidLayer (fst x) (take (uncurry (*) x) (randomSigmoid (fst x) gen))
 
--- forwardNNCalMultiInput :: [[Double]] -> [[Neuron]] -> [[ForwardNeuronCal]]
--- forwardNNCalMultiInput inputs neurons = map (\x -> forwardNNCalInput x neurons) inputs
-
 rate :: Double
 rate = 0.5
 
@@ -82,31 +76,23 @@ backward isOutput da (l:ls) (f:fp:fs) = zipWith updateNeuron (zip dW dB) l : bac
             (activate' n)
 backward _ da _ _ = []
 
-repli ::  [a] -> Int -> [a]
-repli xs n = concat (replicate n xs)
-
-calcNet :: [Double] -> [Double] -> Double
-calcNet xs ws = sum $ zipWith (*) xs ws
-
 predict :: Input -> [[Neuron]] -> Double
 predict i network = activation (head (last (forwardNNCalInput (features i) network)))
 
 cost :: Double -> Double -> Double
-cost expect true = -1 * ((expect * log true) + (1 - expect) * log (1 - true))
+cost expect true = - (expect * log true + (1 - expect) * log (1 - true))
 
 -- Cost function derivative for binary cross-entropy (dL/dz for output layer with sigmoid)
 cost' :: Double -> Double -> Double
 cost' expect pred = pred - expect
 
 forwardNNCalInput :: [Double] -> [[Neuron]] -> [[ForwardNeuronCal]]
-forwardNNCalInput input neurons = [map (\x -> ForwardNeuronCal x x) input] ++ (forwardNNCal (map (\x -> ForwardNeuronCal x x) input) neurons)
+forwardNNCalInput input neurons = [map (\x -> ForwardNeuronCal x x) input] ++ forwardNNCal (map (\x -> ForwardNeuronCal x x) input) neurons
 
 forwardNNCal :: [ForwardNeuronCal] -> [[Neuron]] -> [[ForwardNeuronCal]]
--- forwardNNCal input neurons = forwardNNCalx (map (\x -> ForwardNeuronCal x 0) input) neurons
 forwardNNCal forward (n:ns) = cForward : forwardNNCal cForward ns
-    where
-        cForward = forwardNNLayerCal forward n
-forwardNNCal forward [] = []
+    where cForward = forwardNNLayerCal forward n
+forwardNNCal _ [] = []
 
 forwardNNLayerCal :: [ForwardNeuronCal] -> [Neuron] -> [ForwardNeuronCal]
 forwardNNLayerCal prev neurons = map (forwardNeuronCal prev) neurons
@@ -117,45 +103,20 @@ forwardNeuronCal forward neuron = ForwardNeuronCal z a
         z = calcZ (inputWeights neuron) (map activation forward) (bias neuron)
         a = sigmoid z
 
--- backpropagation
--- backpropagate :: [[ForwardNeuronCal]] -> [[Neuron]] -> [[Neuron]]
--- backpropagate f n = 
-
 chunkLayers :: [a] -> [(a,a)]
 chunkLayers (p:n:xs) = (p,n) : chunkLayers (n:xs)
 chunkLayers _ = []
 
-mmult :: Num a => [[a]] -> [[a]] -> [[a]]
-mmult a b = [ [ sum $ zipWith (*) ar bc | bc <- (transpose b) ] | ar <- a ]
-
--- mmultI :: Num a => [a] -> [a] -> [[a]]
--- mmultI a b = mmult (repeat (length a) b) (repeat (length b) a)
-
--- network = createNN [2,2,1]
--- guess = predict (Input [1,1] 1) <$> network
--- forwardNeurons = forwardNNCalInput [1,1] <$> network
--- backward <$> (fmap (\x -> [cost' 1 x]) guess) <*> (fmap reverse network) <*> (fmap reverse forwardNeurons)
-
--- backward <$> (fmap (\x -> [x]) error) <*> (fmap reverse new_network) <*> (fmap reverse forwardNeurons)
-
--- nameReturn :: IO Double
--- nameReturn = do network <- createNN [2,2,1]
---                 return predict (Input [1,1] 1) network
-
 train :: Double -> Int -> [[Neuron]] -> Input -> [[Neuron]]
 train epsilon maxIterations network input = 
-    case find (findGradient epsilon input) $ take (maxIterations + 1) $ trainUl network input of
+    case find (\n -> abs (predict input n - expected input) < epsilon) $ take (maxIterations + 1) $ trainUl network input of
         Just result -> result
         Nothing -> last $ take (maxIterations + 1) $ trainUl network input
-
-findGradient :: Double -> Input -> [[Neuron]] -> Bool
-findGradient epsilon input network = abs (predict input network - expected input) < epsilon
 
 trainUl :: [[Neuron]] -> Input -> [[[Neuron]]]
 trainUl network samples = iterate (\x -> backpropagate x samples) network
 
 backpropagate :: [[Neuron]] -> Input -> [[Neuron]]
--- backpropagation starts from end so that is why reversing is needed
 backpropagate network i = reverse $ backward True [cost' (expected i) guess] (reverse network) (reverse forwardNeurons)
     where
         forwardNeurons = forwardNNCalInput (features i) network
@@ -225,9 +186,6 @@ main = do
         
         trainComprehensive epsilon maxIterations network xorInputs = 
             foldl' (\net _ -> trainOnAll epsilon 1 net xorInputs) network [1..maxIterations `div` length xorInputs]
-            where
-                trainOnAll epsilon iterations net inputs = 
-                    foldl' (\n (input, _) -> train epsilon iterations n input) net inputs
         
         testXORInput network (input, description) = do
             let prediction = predict input network
