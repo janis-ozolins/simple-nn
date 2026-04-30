@@ -1,0 +1,38 @@
+cabal-version:       2.4
+name:               simple-nn
+version:            0.1.0.0
+synopsis:           Simple neural network implementation in Haskell
+description:        A basic neural network with backpropagation for learning XOR
+license:            MIT
+license-file:      LICENSE
+author:            Janis Ozolins
+maintainer:         janis.ozolins@example.com
+copyright:          2024 Janis Ozolins
+category:           AI, Machine Learning
+build-type:         Simple
+
+library
+  hs-source-dirs:      src
+  exposed-modules:     NN.Types
+                     , NN.Activation
+                     , NN.Network
+                     , NN.Training
+  build-depends:       base >= 4.7 && < 5
+                     , split >= 0.2 && < 0.3
+                     , random >= 1.1 && < 1.3
+  ghc-options:         -Wall -Wcompat -Widentities -Wincomplete-uni-patterns -Wincomplete-record-updates -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints
+  default-language:    Haskell2010
+
+executable simple-nn
+  hs-source-dirs:      src
+  main-is:             Main.hs
+  build-depends:       base >= 4.7 && < 5
+                     , split >= 0.2 && < 0.3
+                     , random >= 1.1 && < 1.3
+                     , simple-nn
+  other-modules:      NN.Types
+                     , NN.Activation
+                     , NN.Network
+                     , NN.Training
+  ghc-options:         -Wall -Wcompat -Widentities -Wincomplete-uni-patterns -Wincomplete-record-updates -Wmissing-export-lists -Wmissing-home-modules -Wpartial-fields -Wredundant-constraints -threaded -rtsopts -with-rtsopts=-N
+  default-language:    Haskell2010
