@@ -41,35 +41,38 @@ createNN layers = createNNwGen layers <$> getStdGen
 
 -- For random initialization of weights W on neuron connections,
 -- b doesn't need it, is initialized as 0
-randomSigmoid :: StdGen -> [Double]
-randomSigmoid = randomRs (-1, 1)
+-- Xavier/Glorot initialization for sigmoid: range = [-sqrt(6/fan_in), sqrt(6/fan_in)]
+randomSigmoid :: Int -> StdGen -> [Double]
+randomSigmoid fanIn g = randomRs (-limit, limit) g
+    where limit = sqrt (6.0 / fromIntegral fanIn)
 
 createNNwGen :: [Int] -> StdGen -> [[Neuron]]
-createNNwGen layers g = map sl $ chunkLayers layers
+createNNwGen layers g = map (uncurry sl) $ zip (chunkLayers layers) (splitGen g)
     where
-        sl x = createSigmoidLayer (fst x) (take (uncurry (*) x) rs)
-        rs = randomSigmoid g
+        splitGen gen = gen : splitGen (snd (next gen))
+        sl x gen = createSigmoidLayer (fst x) (take (uncurry (*) x) (randomSigmoid (fst x) gen))
 
 -- forwardNNCalMultiInput :: [[Double]] -> [[Neuron]] -> [[ForwardNeuronCal]]
 -- forwardNNCalMultiInput inputs neurons = map (\x -> forwardNNCalInput x neurons) inputs
 
 rate :: Double
-rate = 0.1
+rate = 0.5
 
-backward :: [Double] -> [[Neuron]] -> [[ForwardNeuronCal]] -> [[Neuron]]
-backward da (l:ls) (f:fp:fs) = zipWith updateNeuron (zip dW dB) l : backward pDa ls (fp:fs)
+backward :: Bool -> [Double] -> [[Neuron]] -> [[ForwardNeuronCal]] -> [[Neuron]]
+backward isOutput da (l:ls) (f:fp:fs) = zipWith updateNeuron (zip dW dB) l : backward False pDa ls (fp:fs)
     where
-        -- Calculate error at current layer
-        dZ = zipWith (*) da (map (sigmoid' . calc) f)
+        -- For output layer with BCE+sigmoid: dL/dz = da (no sigmoid' multiplication)
+        -- For hidden layers: dL/dz = da * sigmoid'(a) where a is post-activation, da is error from next layer
+        dZ = if isOutput then da else zipWith (*) da (map (sigmoid' . activation) f)
         
         -- Calculate weight and bias gradients
         prevActivations = map activation fp  -- Activations from previous layer
         dW = zipWith (\z as -> map (* z) as) dZ (repeat prevActivations)
         dB = dZ
         
-        -- Calculate error for previous layer
-        weightsT = transpose (map inputWeights l)  -- Transpose weights for matrix multiplication
-        pDa = zipWith (\z ws -> sum (map (* z) ws)) dZ weightsT
+        -- Calculate error for previous layer: pDa = W^T * dZ
+        weightsT = map inputWeights l  -- shape: (current_layer_size, prev_layer_size)
+        pDa = [sum [dZ !! i * weightsT !! i !! j | i <- [0..length dZ - 1]] | j <- [0..length (head weightsT) - 1]]
         
         -- Update neuron function
         updateNeuron (dw, db) n = Neuron 
@@ -77,7 +80,7 @@ backward da (l:ls) (f:fp:fs) = zipWith updateNeuron (zip dW dB) l : backward pDa
             (bias n - rate * db)
             (activate n)
             (activate' n)
-backward da _ _ = []
+backward _ da _ _ = []
 
 repli ::  [a] -> Int -> [a]
 repli xs n = concat (replicate n xs)
@@ -91,12 +94,12 @@ predict i network = activation (head (last (forwardNNCalInput (features i) netwo
 cost :: Double -> Double -> Double
 cost expect true = -1 * ((expect * log true) + (1 - expect) * log (1 - true))
 
--- Correct cost function derivative for binary cross-entropy
+-- Cost function derivative for binary cross-entropy (dL/dz for output layer with sigmoid)
 cost' :: Double -> Double -> Double
-cost' expect true = (sigmoid true - expect)
+cost' expect pred = pred - expect
 
 forwardNNCalInput :: [Double] -> [[Neuron]] -> [[ForwardNeuronCal]]
-forwardNNCalInput input neurons = [map (\x -> ForwardNeuronCal 0 x) input] ++ (forwardNNCal (map (\x -> ForwardNeuronCal x 0) input) neurons)
+forwardNNCalInput input neurons = [map (\x -> ForwardNeuronCal x x) input] ++ (forwardNNCal (map (\x -> ForwardNeuronCal x x) input) neurons)
 
 forwardNNCal :: [ForwardNeuronCal] -> [[Neuron]] -> [[ForwardNeuronCal]]
 -- forwardNNCal input neurons = forwardNNCalx (map (\x -> ForwardNeuronCal x 0) input) neurons
@@ -111,7 +114,7 @@ forwardNNLayerCal prev neurons = map (forwardNeuronCal prev) neurons
 forwardNeuronCal :: [ForwardNeuronCal] -> Neuron -> ForwardNeuronCal
 forwardNeuronCal forward neuron = ForwardNeuronCal z a
     where
-        z = calcZ (inputWeights neuron) (map calc forward) (bias neuron)
+        z = calcZ (inputWeights neuron) (map activation forward) (bias neuron)
         a = sigmoid z
 
 -- backpropagation
@@ -141,9 +144,9 @@ mmult a b = [ [ sum $ zipWith (*) ar bc | bc <- (transpose b) ] | ar <- a ]
 
 train :: Double -> Int -> [[Neuron]] -> Input -> [[Neuron]]
 train epsilon maxIterations network input = 
-    case find (findGradient epsilon input) $ take maxIterations $ trainUl network input of
+    case find (findGradient epsilon input) $ take (maxIterations + 1) $ trainUl network input of
         Just result -> result
-        Nothing -> last $ take maxIterations $ trainUl network input
+        Nothing -> last $ take (maxIterations + 1) $ trainUl network input
 
 findGradient :: Double -> Input -> [[Neuron]] -> Bool
 findGradient epsilon input network = abs (predict input network - expected input) < epsilon
@@ -153,7 +156,7 @@ trainUl network samples = iterate (\x -> backpropagate x samples) network
 
 backpropagate :: [[Neuron]] -> Input -> [[Neuron]]
 -- backpropagation starts from end so that is why reversing is needed
-backpropagate network i = reverse $ backward [cost' (expected i) guess] (reverse network) (reverse forwardNeurons)
+backpropagate network i = reverse $ backward True [cost' (expected i) guess] (reverse network) (reverse forwardNeurons)
     where
         forwardNeurons = forwardNNCalInput (features i) network
         guess = activation (head (last forwardNeurons))
@@ -173,8 +176,8 @@ main = do
             (Input [1,1] 0, "[1,1] -> 0")
             ]
     
-    let epsilon = 0.15  -- Slightly higher threshold for this experiment
-    let maxIterations = 3000  -- More iterations for better learning
+    let epsilon = 0.1  -- Target error threshold
+    let maxIterations = 100000  -- More iterations for better learning
     
     putStrLn "XOR Truth Table:"
     mapM_ (putStrLn . snd) xorInputs
@@ -194,7 +197,7 @@ main = do
     putStrLn $ "Using architecture: " ++ show bestNetworkSize
     
     -- Train on all patterns multiple times (simple batch training)
-    let trainedNetwork = trainComprehensive epsilon 10000 bestNetwork xorInputs
+    let trainedNetwork = trainComprehensive epsilon 100000 bestNetwork xorInputs
     
     -- Final evaluation
     putStrLn "\n=== Final Evaluation ==="
@@ -205,16 +208,20 @@ main = do
             putStrLn $ "\n--- Testing architecture: " ++ show size ++ " ---"
             network <- createNN size
             
-            -- Train on first pattern as representative test
-            let (firstInput, firstDesc) = head xorInputs
-            let trainedNetwork = train epsilon maxIterations network firstInput
-            let prediction = predict firstInput trainedNetwork
-            let error = abs (prediction - expected firstInput)
+            -- Train on all patterns
+            let trainedNetwork = trainOnAll epsilon maxIterations network xorInputs
+            let totalError = sum [abs (predict input trainedNetwork - expected input) | (input, _) <- xorInputs]
+            let avgError = totalError / fromIntegral (length xorInputs)
             
-            let result = "Architecture " ++ show size ++ ": Error = " ++ show error ++ 
-                        " (Prediction: " ++ show prediction ++ ", Expected: " ++ show (expected firstInput) ++ ")"
+            let result = "Architecture " ++ show size ++ ": Avg Error = " ++ show avgError
             putStrLn result
             return result
+        
+        trainOnAll epsilon maxIterations network inputs = 
+            foldl' (\net _ -> trainAllOnce epsilon net inputs) network [1..maxIterations]
+        
+        trainAllOnce epsilon network inputs = 
+            foldl' (\net (input, _) -> train epsilon 1 net input) network inputs
         
         trainComprehensive epsilon maxIterations network xorInputs = 
             foldl' (\net _ -> trainOnAll epsilon 1 net xorInputs) network [1..maxIterations `div` length xorInputs]
