@@ -7,7 +7,7 @@ build: dist/build/simple-nn
 
 dist/build/simple-nn: src/nn.hs
 	mkdir -p dist/build
-	ghc -O0 -j -o dist/build/simple-nn src/nn.hs
+	ghc -O2 -j -o dist/build/simple-nn src/nn.hs
 
 # Alternative: cabal build (slower but more standard)
 cabal-build:
