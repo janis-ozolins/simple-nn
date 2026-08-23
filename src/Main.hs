@@ -1,6 +1,5 @@
 module Main (main) where
 
-import Data.List (foldl')
 import NN
 
 main :: IO ()
