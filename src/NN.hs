@@ -1,7 +1,40 @@
+module NN
+  ( -- * Types
+    Neuron (..)
+  , ForwardNeuronCal (..)
+  , Input (..)
+    -- * Activation
+  , sigmoid
+  , sigmoid'
+    -- * Construction
+  , createSigmoidNeuron
+  , createSigmoidLayer
+  , createNN
+  , createNNwGen
+  , randomSigmoid
+  , chunkLayers
+    -- * Forward pass
+  , calcZ
+  , forwardNNCalInput
+  , forwardNNCal
+  , forwardNNLayerCal
+  , forwardNeuronCal
+  , predict
+    -- * Cost
+  , cost
+  , cost'
+    -- * Backward pass / training
+  , rate
+  , backward
+  , backpropagate
+  , train
+  , trainUl
+  ) where
 
 import Data.List(intercalate, transpose, find, foldl')
 import Data.List.Split (chunksOf)
-import System.Random(StdGen, getStdGen, randomRs, next)
+import Data.Maybe(fromMaybe, listToMaybe)
+import System.Random(StdGen, getStdGen, randomRs, splitGen)
 
 data Neuron = Neuron { inputWeights :: [Double]      -- ^ The input weights
                      , bias :: Double                -- ^ b in W * X + b
@@ -44,9 +77,9 @@ randomSigmoid fanIn g = randomRs (-limit, limit) g
     where limit = sqrt (6.0 / fromIntegral fanIn)
 
 createNNwGen :: [Int] -> StdGen -> [[Neuron]]
-createNNwGen layers g = map (uncurry sl) $ zip (chunkLayers layers) (splitGen g)
+createNNwGen layers g = map (uncurry sl) $ zip (chunkLayers layers) (splitGens g)
     where
-        splitGen gen = gen : splitGen (snd (next gen))
+        splitGens gen = gen : splitGens (snd (splitGen gen))
         sl x gen = createSigmoidLayer (fst x) (take (uncurry (*) x) (randomSigmoid (fst x) gen))
 
 rate :: Double
@@ -66,7 +99,8 @@ backward isOutput da (l:ls) (f:fp:fs) = zipWith updateNeuron (zip dW dB) l : bac
         
         -- Calculate error for previous layer: pDa = W^T * dZ
         weightsT = map inputWeights l  -- shape: (current_layer_size, prev_layer_size)
-        pDa = [sum [dZ !! i * weightsT !! i !! j | i <- [0..length dZ - 1]] | j <- [0..length (head weightsT) - 1]]
+        pDa = [sum [dZ !! i * weightsT !! i !! j | i <- [0..length dZ - 1]] | j <- [0..length firstWeights - 1]]
+          where firstWeights = fromMaybe [] (listToMaybe weightsT)
         
         -- Update neuron function
         updateNeuron (dw, db) n = Neuron 
@@ -77,7 +111,7 @@ backward isOutput da (l:ls) (f:fp:fs) = zipWith updateNeuron (zip dW dB) l : bac
 backward _ da _ _ = []
 
 predict :: Input -> [[Neuron]] -> Double
-predict i network = activation (head (last (forwardNNCalInput (features i) network)))
+predict i network = maybe 0 activation (listToMaybe (last (forwardNNCalInput (features i) network)))
 
 cost :: Double -> Double -> Double
 cost expect true = - (expect * log true + (1 - expect) * log (1 - true))
@@ -120,77 +154,5 @@ backpropagate :: [[Neuron]] -> Input -> [[Neuron]]
 backpropagate network i = reverse $ backward True [cost' (expected i) guess] (reverse network) (reverse forwardNeurons)
     where
         forwardNeurons = forwardNNCalInput (features i) network
-        guess = activation (head (last forwardNeurons))
-
-
-main :: IO ()
-main = do
-    putStrLn "=== XOR Function Learning Demo ==="
-    putStrLn "Testing different network architectures for XOR problem..."
-    
-    -- Test different network sizes
-    let networkSizes = [[2, 2, 1], [2, 4, 1], [2, 6, 1]]
-    let xorInputs = [
-            (Input [0,0] 0, "[0,0] -> 0"),
-            (Input [0,1] 1, "[0,1] -> 1"),
-            (Input [1,0] 1, "[1,0] -> 1"),
-            (Input [1,1] 0, "[1,1] -> 0")
-            ]
-    
-    let epsilon = 0.1  -- Target error threshold
-    let maxIterations = 100000  -- More iterations for better learning
-    
-    putStrLn "XOR Truth Table:"
-    mapM_ (putStrLn . snd) xorInputs
-    putStrLn "\nTesting network architectures:"
-    
-    -- Test each network size
-    results <- mapM (testNetworkSize epsilon maxIterations xorInputs) networkSizes
-    
-    -- Compare results
-    putStrLn "\n=== Architecture Comparison ==="
-    mapM_ putStrLn results
-    
-    -- Test the best architecture with more comprehensive training
-    putStrLn "\n=== Comprehensive Training on Best Architecture ==="
-    let bestNetworkSize = [2, 4, 1]  -- Start with this as best
-    bestNetwork <- createNN bestNetworkSize
-    putStrLn $ "Using architecture: " ++ show bestNetworkSize
-    
-    -- Train on all patterns multiple times (simple batch training)
-    let trainedNetwork = trainComprehensive epsilon 100000 bestNetwork xorInputs
-    
-    -- Final evaluation
-    putStrLn "\n=== Final Evaluation ==="
-    mapM_ (testXORInput trainedNetwork) xorInputs
-
-    where
-        testNetworkSize epsilon maxIterations xorInputs size = do
-            putStrLn $ "\n--- Testing architecture: " ++ show size ++ " ---"
-            network <- createNN size
-            
-            -- Train on all patterns
-            let trainedNetwork = trainOnAll epsilon maxIterations network xorInputs
-            let totalError = sum [abs (predict input trainedNetwork - expected input) | (input, _) <- xorInputs]
-            let avgError = totalError / fromIntegral (length xorInputs)
-            
-            let result = "Architecture " ++ show size ++ ": Avg Error = " ++ show avgError
-            putStrLn result
-            return result
-        
-        trainOnAll epsilon maxIterations network inputs = 
-            foldl' (\net _ -> trainAllOnce epsilon net inputs) network [1..maxIterations]
-        
-        trainAllOnce epsilon network inputs = 
-            foldl' (\net (input, _) -> train epsilon 1 net input) network inputs
-        
-        trainComprehensive epsilon maxIterations network xorInputs = 
-            foldl' (\net _ -> trainOnAll epsilon 1 net xorInputs) network [1..maxIterations `div` length xorInputs]
-        
-        testXORInput network (input, description) = do
-            let prediction = predict input network
-            let error = abs (prediction - expected input)
-            let success = if error < 0.2 then "✓" else "✗"
-            putStrLn $ success ++ " " ++ description ++ " -> Predicted: " ++ show prediction ++ 
-                      " (Expected: " ++ show (expected input) ++ ", Error: " ++ show error ++ ")"
+        guess = maybe 0 activation (listToMaybe (last forwardNeurons))
     
