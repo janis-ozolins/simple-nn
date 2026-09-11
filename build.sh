@@ -10,7 +10,7 @@ OUTPUT="$BUILD_DIR/simple-nn"
 mkdir -p "$BUILD_DIR"
 
 echo "Building simple-nn..."
-ghc -O0 -j -isrc -o "$OUTPUT" src/Main.hs
+ghc -O0 -j -isrc -o "$OUTPUT" app/Main.hs
 
 if [ "$1" = "run" ]; then
     echo "Running..."
