@@ -3,13 +3,13 @@
 # Fast build using ghc directly (no cabal overhead)
 all: build
 
-SOURCES = $(wildcard src/NN.hs) $(wildcard src/NN/*.hs) src/Main.hs
+SOURCES = $(wildcard src/NN.hs) $(wildcard src/NN/*.hs) app/Main.hs
 
 build: dist/build/simple-nn
 
 dist/build/simple-nn: $(SOURCES)
 	mkdir -p dist/build
-	ghc -O0 -j -isrc -o dist/build/simple-nn src/Main.hs
+	ghc -O0 -j -isrc -o dist/build/simple-nn app/Main.hs
 
 # Alternative: cabal build (slower but more standard)
 cabal-build:
